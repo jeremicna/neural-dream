@@ -22,15 +22,25 @@ def init_raft():
     print("RAFT model loaded.")
     return model, transforms, device
 
-def flow_to_image(flow_tensor):
-    flow = flow_tensor.permute(1, 2, 0).cpu().numpy()
-    h, w = flow.shape[:2]
+def flow_to_image(flow_array):
+    h, w = flow_array.shape[:2]
     hsv = np.zeros((h, w, 3), dtype=np.uint8)
     hsv[..., 1] = 255
-    mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+    mag, ang = cv2.cartToPolar(flow_array[..., 0], flow_array[..., 1])
     hsv[..., 0] = ang * 180 / np.pi / 2
     hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
     return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+def warp_image(img, flow):
+    h, w = flow.shape[:2]
+    
+    flow_map = np.column_stack((np.repeat(np.arange(h), w), np.tile(np.arange(w), h)))
+    flow_map = flow_map.reshape((h, w, 2)).astype(np.float32)
+
+    map_x = (flow_map[..., 1] - flow[..., 0]).astype(np.float32)
+    map_y = (flow_map[..., 0] - flow[..., 1]).astype(np.float32)
+
+    return cv2.remap(img, map_x, map_y, cv2.INTER_LINEAR)
 
 def estimate_flow(prev_frame_bgr, curr_frame_bgr, model, transforms, device):
     prev_rgb = cv2.cvtColor(prev_frame_bgr, cv2.COLOR_BGR2RGB)
@@ -51,4 +61,7 @@ def estimate_flow(prev_frame_bgr, curr_frame_bgr, model, transforms, device):
         list_of_flows = model(img1_batch, img2_batch)
         predicted_flow = list_of_flows[-1][0]
 
-    return flow_to_image(predicted_flow)
+    flow_np = predicted_flow.permute(1, 2, 0).cpu().numpy()
+    flow_vis = flow_to_image(flow_np)
+
+    return flow_np, flow_vis
