@@ -114,7 +114,7 @@ path or a full absolute path.
 
 **Options**:
 * `-image_size`: Maximum side length (in pixels) of the generated image. Default is 512.
-* `-gpu`: Zero-indexed ID of the GPU to use; for CPU mode set `-gpu` to `c`.
+* `-gpu`: Zero-indexed ID of the GPU to use; for CPU mode set `-gpu` to `c`; for MPS mode (Apple Silicon) set `-gpu` to `mps`.
 
 **Optimization options**:
 * `-dream_weight`: How much to weight DeepDream. Default is `1e3`.

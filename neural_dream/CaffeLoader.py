@@ -412,8 +412,7 @@ def loadCaffemodel(model_file, pooling, use_gpu, disable_check, add_classifier=F
     cnn.load_state_dict(torch.load(model_file, map_location='cpu'), strict=(not disable_check))
     print("Successfully loaded " + str(model_file))
 
-    # Maybe convert the model to cuda now, to avoid later issues
-    if "c" not in str(use_gpu).lower() or "c" not in str(use_gpu[0]).lower():
+    if "c" not in str(use_gpu).lower() and str(use_gpu).lower() != "mps":
         cnn = cnn.cuda()
 
     if not isinstance(cnn, NIN) and not any(name in model_file.lower() for name in ic_dict) and add_classifier:

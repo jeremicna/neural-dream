@@ -129,7 +129,7 @@ def main():
     if params.model_mean != 'auto':
         input_mean = [float(m) for m in input_mean.split(',')]
 
-    content_image = preprocess(params.content_image, params.image_size, params.model_type, input_mean).type(dtype)
+    content_image = preprocess(params.content_image, params.image_size, params.model_type, input_mean).to(backward_device)
     clamp_val = 256 if params.model_type == 'caffe' else 1
     output_start_num = params.output_start_num - 1 if params.output_start_num > 0 else 0
 
@@ -152,6 +152,7 @@ def main():
     # Set up the network, inserting dream loss modules
     net_base, dream_losses, tv_losses, l2_losses, lm_layer_names, loss_module_list = dream_model.build_net(cnn, dream_layers, \
     has_inception, layerList, params.classify, start_params, primary_params, secondary_params)
+    net_base = net_base.to(backward_device)
 
     if params.classify > 0:
        classify_img = dream_utils.Classify(labels, params.classify)
@@ -169,7 +170,7 @@ def main():
         torch.backends.cudnn.deterministic=True
         random.seed(params.seed)
     if params.init == 'random':
-        base_img = torch.randn_like(content_image).mul(0.001)
+        base_img = torch.randn(content_image.size(), device=backward_device).mul(0.001)
     elif params.init == 'image':
         base_img = content_image.clone()
 
@@ -555,24 +556,42 @@ def setup_gpu():
             torch.backends.openmp.enabled = True
 
     multidevice = False
-    if "," in str(params.gpu):
+    
+    # MPS
+    if str(params.gpu).lower() == 'mps':
+        if torch.backends.mps.is_available():
+            dtype = torch.float32 
+            backward_device = torch.device("mps")
+            print("Using MPS (Apple Silicon GPU)")
+        else:
+            print("MPS not available, falling back to CPU")
+            setup_cpu()
+            dtype, backward_device = torch.FloatTensor, torch.device("cpu")
+    
+    # Multi-GPU CUDA
+    elif "," in str(params.gpu):
         devices = params.gpu.split(',')
         multidevice = True
-
         if 'c' in str(devices[0]).lower():
-            backward_device = "cpu"
-            setup_cuda(), setup_cpu()
+            backward_device = torch.device("cpu")
+            setup_cuda(); setup_cpu()
         else:
-            backward_device = "cuda:" + devices[0]
+            backward_device = torch.device(f"cuda:{devices[0]}")
             setup_cuda()
-        dtype = torch.FloatTensor
+        dtype = torch.FloatTensor # Fallback for multi-device logic handling
 
+    # Single-GPU CUDA
     elif "c" not in str(params.gpu).lower():
         setup_cuda()
-        dtype, backward_device = torch.cuda.FloatTensor, "cuda:" + str(params.gpu)
+        dtype = torch.cuda.FloatTensor
+        backward_device = torch.device(f"cuda:{params.gpu}")
+    
+    # CPU
     else:
         setup_cpu()
-        dtype, backward_device = torch.FloatTensor, "cpu"
+        dtype = torch.FloatTensor
+        backward_device = torch.device("cpu")
+    
     return dtype, multidevice, backward_device
 
 
