@@ -10,7 +10,7 @@ OUTPUT_VIDEO = "output.mp4"
 TEMP_DIR = "temp"
 
 # 0.0 = Pure Warp (blurry), 1.0 = No Warp (flickering).
-BLEND_WEIGHT = 0.1
+BLEND_WEIGHT = 0.2
 
 def process_video():
     cwd = os.getcwd()
@@ -30,10 +30,11 @@ def process_video():
         
         dreamer_args = [
             "-gpu", "mps",
+            "-lap_scale", "4",
             "-image_size", "1024",
             "-save_iter", "0",
             "-print_iter", "0",
-            "-num_iterations", "2",
+            "-num_iterations", "5",
         ]
         dreamer = DeepDreamer(dreamer_args)
         print("Dreamer model loaded.")
