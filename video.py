@@ -2,6 +2,8 @@ import cv2
 import os
 import shutil
 import numpy as np
+import torch
+import gc
 from dreamer import DeepDreamer
 import optical_flow as flow_est
 
@@ -36,8 +38,6 @@ def process_video():
             "-print_iter", "0",
             "-num_iterations", "5",
         ]
-        dreamer = DeepDreamer(dreamer_args)
-        print("Dreamer model loaded.")
 
         if not os.path.exists(INPUT_VIDEO):
             raise FileNotFoundError(f"Input video not found at: {INPUT_VIDEO}")
@@ -63,6 +63,8 @@ def process_video():
                 break
 
             print(f"Processing frame {frame_count}/{total_frames}")
+
+            dreamer = DeepDreamer(dreamer_args)
 
             input_frame_path = os.path.join(
                 input_frames_dir, f"frame_{frame_count:06d}.jpg"
@@ -114,6 +116,13 @@ def process_video():
             cv2.imwrite(input_frame_path, img_to_dream)
             dreamer.dream(input_frame_path, output_frame_path)
 
+            del dreamer
+            gc.collect()
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
             if os.path.exists(output_frame_path):
                 prev_dream = cv2.imread(output_frame_path)
 
@@ -138,10 +147,6 @@ def process_video():
                 )
 
             frame_count += 1
-
-            if frame_count > 120:
-                print("Frame limit reached for testing.")
-                break
 
         cap.release()
         print(f"Processed {frame_count} frames.")
