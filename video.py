@@ -10,7 +10,7 @@ OUTPUT_VIDEO = "output.mp4"
 TEMP_DIR = "temp"
 
 # 0.0 = Pure Warp (blurry), 1.0 = No Warp (flickering).
-BLEND_WEIGHT = 0.3
+BLEND_WEIGHT = 0.1
 
 def process_video():
     cwd = os.getcwd()
@@ -33,7 +33,7 @@ def process_video():
             "-image_size", "1024",
             "-save_iter", "0",
             "-print_iter", "0",
-            "-num_iterations", "1",
+            "-num_iterations", "2",
         ]
         dreamer = DeepDreamer(dreamer_args)
         print("Dreamer model loaded.")
@@ -137,6 +137,10 @@ def process_video():
                 )
 
             frame_count += 1
+
+            if frame_count > 120:
+                print("Frame limit reached for testing.")
+                break
 
         cap.release()
         print(f"Processed {frame_count} frames.")
