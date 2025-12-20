@@ -6,6 +6,8 @@ import torch
 import gc
 from dreamer import DeepDreamer
 import optical_flow as flow_est
+import contextlib
+
 
 INPUT_VIDEO = "input.mp4"
 OUTPUT_VIDEO = "output.mp4"
@@ -53,7 +55,8 @@ def process_video():
         os.makedirs(output_frames_dir, exist_ok=True)
         os.makedirs(flow_frames_dir, exist_ok=True)
 
-        raft_model, raft_transforms, device = flow_est.init_raft()
+        with contextlib.redirect_stdout(open(os.devnull, 'w')):
+            raft_model, raft_transforms, device = flow_est.init_raft()
         
         dreamer_args = [
             "-gpu", "mps",
@@ -90,7 +93,8 @@ def process_video():
 
             print(f"Processing frame {frame_count}/{total_frames}")
 
-            dreamer = DeepDreamer(dreamer_args)
+            with contextlib.redirect_stdout(open(os.devnull, 'w')):
+                dreamer = DeepDreamer(dreamer_args)
 
             input_frame_path = os.path.join(
                 input_frames_dir, f"frame_{frame_count:06d}.jpg"
@@ -140,7 +144,9 @@ def process_video():
             prev_frame = frame.copy()
 
             cv2.imwrite(input_frame_path, img_to_dream)
-            dreamer.dream(input_frame_path, output_frame_path)
+
+            with contextlib.redirect_stdout(open(os.devnull, 'w')):
+                dreamer.dream(input_frame_path, output_frame_path)
 
             del dreamer
             gc.collect()
