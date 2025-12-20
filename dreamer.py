@@ -15,103 +15,104 @@ import neural_dream.dream_tile as dream_tile
 from neural_dream.dream_auto import auto_model_mode, auto_mean
 
 import argparse
-parser = argparse.ArgumentParser()
-# Basic options
-parser.add_argument("-content_image", help="Content target image", default='examples/inputs/tubingen.jpg')
-parser.add_argument("-image_size", help="Maximum height / width of generated image", type=int, default=512)
-parser.add_argument("-gpu", help="Zero-indexed ID of the GPU to use; for CPU mode set -gpu = c", default=0)
+def get_arg_parser():
+    parser = argparse.ArgumentParser()
+    # Basic options
+    parser.add_argument("-content_image", help="Content target image", default='examples/inputs/tubingen.jpg')
+    parser.add_argument("-image_size", help="Maximum height / width of generated image", type=int, default=512)
+    parser.add_argument("-gpu", help="Zero-indexed ID of the GPU to use; for CPU mode set -gpu = c", default=0)
 
-# Optimization options
-parser.add_argument("-dream_weight", type=float, default=1000)
-parser.add_argument("-normalize_weights", action='store_true')
-parser.add_argument("-tv_weight", type=float, default=0)
-parser.add_argument("-l2_weight", type=float, default=0)
-parser.add_argument("-num_iterations", type=int, default=10)
-parser.add_argument("-jitter", type=int, default=32)
-parser.add_argument("-init", choices=['random', 'image'], default='image')
-parser.add_argument("-optimizer", choices=['lbfgs', 'adam'], default='adam')
-parser.add_argument("-learning_rate", type=float, default=1.5)
-parser.add_argument("-lbfgs_num_correction", type=int, default=100)
-parser.add_argument("-loss_mode", choices=['bce', 'mse', 'mean', 'norm', 'l2', 'abs_mean', 'abs_l2'], default='l2')
+    # Optimization options
+    parser.add_argument("-dream_weight", type=float, default=1000)
+    parser.add_argument("-normalize_weights", action='store_true')
+    parser.add_argument("-tv_weight", type=float, default=0)
+    parser.add_argument("-l2_weight", type=float, default=0)
+    parser.add_argument("-num_iterations", type=int, default=10)
+    parser.add_argument("-jitter", type=int, default=32)
+    parser.add_argument("-init", choices=['random', 'image'], default='image')
+    parser.add_argument("-optimizer", choices=['lbfgs', 'adam'], default='adam')
+    parser.add_argument("-learning_rate", type=float, default=1.5)
+    parser.add_argument("-lbfgs_num_correction", type=int, default=100)
+    parser.add_argument("-loss_mode", choices=['bce', 'mse', 'mean', 'norm', 'l2', 'abs_mean', 'abs_l2'], default='l2')
 
-# Output options
-parser.add_argument("-print_iter", type=int, default=1)
-parser.add_argument("-print_octave_iter", type=int, default=0)
-parser.add_argument("-save_iter", type=int, default=1)
-parser.add_argument("-save_octave_iter", type=int, default=0)
-parser.add_argument("-output_image", default='out.png')
-parser.add_argument("-output_start_num", type=int, default=1)
+    # Output options
+    parser.add_argument("-print_iter", type=int, default=1)
+    parser.add_argument("-print_octave_iter", type=int, default=0)
+    parser.add_argument("-save_iter", type=int, default=1)
+    parser.add_argument("-save_octave_iter", type=int, default=0)
+    parser.add_argument("-output_image", default='out.png')
+    parser.add_argument("-output_start_num", type=int, default=1)
 
-# Octave options
-parser.add_argument("-num_octaves", type=int, default=2)
-parser.add_argument("-octave_scale", default='0.6')
-parser.add_argument("-octave_iter", type=int, default=50)
-parser.add_argument("-octave_mode", choices=['normal', 'advanced', 'manual_max', 'manual_min', 'manual'], default='normal')
+    # Octave options
+    parser.add_argument("-num_octaves", type=int, default=2)
+    parser.add_argument("-octave_scale", default='0.6')
+    parser.add_argument("-octave_iter", type=int, default=50)
+    parser.add_argument("-octave_mode", choices=['normal', 'advanced', 'manual_max', 'manual_min', 'manual'], default='normal')
 
-# Channel options
-parser.add_argument("-channels", type=str, help="channels for DeepDream", default='-1')
-parser.add_argument("-channel_mode", choices=['all', 'strong', 'avg', 'weak', 'ignore'], default='all')
-parser.add_argument("-channel_capture", choices=['once', 'iter'], default='once')
+    # Channel options
+    parser.add_argument("-channels", type=str, help="channels for DeepDream", default='-1')
+    parser.add_argument("-channel_mode", choices=['all', 'strong', 'avg', 'weak', 'ignore'], default='all')
+    parser.add_argument("-channel_capture", choices=['once', 'iter'], default='once')
 
-# Guassian Blur options
-parser.add_argument("-layer_sigma", type=float, default=0)
+    # Guassian Blur options
+    parser.add_argument("-layer_sigma", type=float, default=0)
 
-# Laplacian pyramid options
-parser.add_argument("-lap_scale", type=int, default=0)
-parser.add_argument("-sigma", default='1')
+    # Laplacian pyramid options
+    parser.add_argument("-lap_scale", type=int, default=0)
+    parser.add_argument("-sigma", default='1')
 
-# FFT options
-parser.add_argument("-use_fft", action='store_true')
-parser.add_argument("-fft_block", type=int, default=25)
+    # FFT options
+    parser.add_argument("-use_fft", action='store_true')
+    parser.add_argument("-fft_block", type=int, default=25)
 
-# Zoom options
-parser.add_argument("-zoom", type=int, default=0)
-parser.add_argument("-zoom_mode", choices=['percent', 'pixel'], default='percent')
-parser.add_argument("-leading_zeros", type=int, default=0)
+    # Zoom options
+    parser.add_argument("-zoom", type=int, default=0)
+    parser.add_argument("-zoom_mode", choices=['percent', 'pixel'], default='percent')
+    parser.add_argument("-leading_zeros", type=int, default=0)
 
-# Tile options
-parser.add_argument("-tile_size", type=int, default=0)
-parser.add_argument("-overlap_percent", type=float, default=0.5)
-parser.add_argument("-print_tile", type=int, default=0)
-parser.add_argument("-disable_roll", action='store_true')
-parser.add_argument("-print_tile_iter", type=int, default=0)
-parser.add_argument("-image_capture_size", help="Image size for initial capture, and classification", type=int, default=512)
+    # Tile options
+    parser.add_argument("-tile_size", type=int, default=0)
+    parser.add_argument("-overlap_percent", type=float, default=0.5)
+    parser.add_argument("-print_tile", type=int, default=0)
+    parser.add_argument("-disable_roll", action='store_true')
+    parser.add_argument("-print_tile_iter", type=int, default=0)
+    parser.add_argument("-image_capture_size", help="Image size for initial capture, and classification", type=int, default=512)
 
-# Gif options
-parser.add_argument("-create_gif", action='store_true')
-parser.add_argument("-frame_duration", type=int, default=100)
+    # Gif options
+    parser.add_argument("-create_gif", action='store_true')
+    parser.add_argument("-frame_duration", type=int, default=100)
 
-# Other options
-parser.add_argument("-original_colors", type=int, choices=[0, 1], default=0)
-parser.add_argument("-pooling", choices=['avg', 'max'], default='max')
-parser.add_argument("-model_file", type=str, default='models/bvlc_googlenet.pth')
-parser.add_argument("-model_type", choices=['caffe', 'pytorch', 'keras', 'auto'], default='auto')
-parser.add_argument("-model_mean", default='auto')
-parser.add_argument("-label_file", type=str, default='')
-parser.add_argument("-disable_check", action='store_true')
-parser.add_argument("-backend", choices=['nn', 'cudnn', 'mkl', 'mkldnn', 'openmp', 'mkl,cudnn', 'cudnn,mkl'], default='nn')
-parser.add_argument("-cudnn_autotune", action='store_true')
-parser.add_argument("-seed", type=int, default=-1)
-parser.add_argument("-clamp", action='store_true')
-parser.add_argument("-random_transforms", choices=['none', 'all', 'flip', 'rotate'], default='none')
-parser.add_argument("-adjust_contrast", type=float, help="try 99.98", default=-1)
-parser.add_argument("-classify", type=int, default=0)
+    # Other options
+    parser.add_argument("-original_colors", type=int, choices=[0, 1], default=0)
+    parser.add_argument("-pooling", choices=['avg', 'max'], default='max')
+    parser.add_argument("-model_file", type=str, default='models/bvlc_googlenet.pth')
+    parser.add_argument("-model_type", choices=['caffe', 'pytorch', 'keras', 'auto'], default='auto')
+    parser.add_argument("-model_mean", default='auto')
+    parser.add_argument("-label_file", type=str, default='')
+    parser.add_argument("-disable_check", action='store_true')
+    parser.add_argument("-backend", choices=['nn', 'cudnn', 'mkl', 'mkldnn', 'openmp', 'mkl,cudnn', 'cudnn,mkl'], default='nn')
+    parser.add_argument("-cudnn_autotune", action='store_true')
+    parser.add_argument("-seed", type=int, default=-1)
+    parser.add_argument("-clamp", action='store_true')
+    parser.add_argument("-random_transforms", choices=['none', 'all', 'flip', 'rotate'], default='none')
+    parser.add_argument("-adjust_contrast", type=float, help="try 99.98", default=-1)
+    parser.add_argument("-classify", type=int, default=0)
 
-parser.add_argument("-dream_layers", help="layers for DeepDream", default='inception_4d_3x3_reduce')
+    parser.add_argument("-dream_layers", help="layers for DeepDream", default='inception_4d_3x3_reduce')
 
-parser.add_argument("-multidevice_strategy", default='4,7,29')
+    parser.add_argument("-multidevice_strategy", default='4,7,29')
 
-# Help options
-parser.add_argument("-print_layers", action='store_true')
-parser.add_argument("-print_channels", action='store_true')
+    # Help options
+    parser.add_argument("-print_layers", action='store_true')
+    parser.add_argument("-print_channels", action='store_true')
 
-# Experimental params
-parser.add_argument("-norm_percent", type=float, default=0)
-parser.add_argument("-abs_percent", type=float, default=0)
-parser.add_argument("-mean_percent", type=float, default=0)
-parser.add_argument("-percent_mode", choices=['slow', 'fast'], default='fast')
-params = parser.parse_args()
-
+    # Experimental params
+    parser.add_argument("-norm_percent", type=float, default=0)
+    parser.add_argument("-abs_percent", type=float, default=0)
+    parser.add_argument("-mean_percent", type=float, default=0)
+    parser.add_argument("-percent_mode", choices=['slow', 'fast'], default='fast')
+    
+    return parser
 
 Image.MAX_IMAGE_PIXELS = 1000000000
 params = None
@@ -119,6 +120,9 @@ params = None
 class DeepDreamer:
     def __init__(self, arg_list=None):
         global params
+
+        parser = get_arg_parser()
+
         if arg_list is not None:
             params = parser.parse_args(arg_list)
         else:

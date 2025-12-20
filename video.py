@@ -4,18 +4,29 @@ import shutil
 import numpy as np
 import torch
 import gc
+import argparse
+import sys
+import contextlib
 from dreamer import DeepDreamer
 import optical_flow as flow_est
-import contextlib
 
+def get_suppressor(debug_mode):
+    if debug_mode:
+        return contextlib.nullcontext()
+    return contextlib.redirect_stdout(open(os.devnull, 'w'))
 
-INPUT_VIDEO = "input.mp4"
-OUTPUT_VIDEO = "output.mp4"
-TEMP_DIR = "temp"
-
-# 0.0 = Pure Warp (blurry), 1.0 = No Warp (flickering).
-BLEND_WEIGHT = 0.5
-UPDATE_INTERVAL = 5
+def filter_args(args_list, keys_to_remove):
+    filtered = []
+    skip_next = False
+    for arg in args_list:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in keys_to_remove:
+            skip_next = True
+            continue
+        filtered.append(arg)
+    return filtered
 
 def update_output_video(output_path, frames_dir, width, height, fps, count):
     temp_output = output_path + ".tmp.mp4"
@@ -41,10 +52,14 @@ def update_output_video(output_path, frames_dir, width, height, fps, count):
     
     print(f"[Video Update] Refreshed {output_path} with {frames_written} frames.")
 
-def process_video():
+def process_video(args, dreamer_args):
     cwd = os.getcwd()
-    abs_temp_dir = os.path.join(cwd, TEMP_DIR)
-    
+    abs_temp_dir = os.path.join(cwd, args.temp_dir)
+    suppressor = get_suppressor(args.debug)
+
+    keys_to_remove = ["-content_image", "-output_image"]
+    clean_dreamer_args = filter_args(dreamer_args, keys_to_remove)
+
     try:
         input_frames_dir = os.path.join(abs_temp_dir, "input")
         output_frames_dir = os.path.join(abs_temp_dir, "output")
@@ -55,25 +70,19 @@ def process_video():
         os.makedirs(output_frames_dir, exist_ok=True)
         os.makedirs(flow_frames_dir, exist_ok=True)
 
-        with contextlib.redirect_stdout(open(os.devnull, 'w')):
+        print("Initializing Optical Flow (RAFT)...")
+        with suppressor:
             raft_model, raft_transforms, device = flow_est.init_raft()
         
-        dreamer_args = [
-            "-gpu", "mps",
-            "-lap_scale", "4", # Maybe 4?
-            "-channel_mode", "strong",
-            "-image_size", "1024",
-            "-save_iter", "0",
-            "-print_iter", "0",
-            "-num_iterations", "2",
-        ]
+        if args.debug:
+            print(f"Forwarding arguments to DeepDreamer: {clean_dreamer_args}")
 
-        if not os.path.exists(INPUT_VIDEO):
-            raise FileNotFoundError(f"Input video not found at: {INPUT_VIDEO}")
+        if not os.path.exists(args.content_video):
+            raise FileNotFoundError(f"Input video not found at: {args.content_video}")
 
-        cap = cv2.VideoCapture(INPUT_VIDEO)
+        cap = cv2.VideoCapture(args.content_video)
         if not cap.isOpened():
-            raise ValueError(f"Could not open video: {INPUT_VIDEO}")
+            raise ValueError(f"Could not open video: {args.content_video}")
 
         fps = cap.get(cv2.CAP_PROP_FPS)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -93,8 +102,8 @@ def process_video():
 
             print(f"Processing frame {frame_count}/{total_frames}")
 
-            with contextlib.redirect_stdout(open(os.devnull, 'w')):
-                dreamer = DeepDreamer(dreamer_args)
+            with suppressor:
+                dreamer = DeepDreamer(clean_dreamer_args)
 
             input_frame_path = os.path.join(
                 input_frames_dir, f"frame_{frame_count:06d}.jpg"
@@ -109,13 +118,14 @@ def process_video():
             img_to_dream = frame.copy()
 
             if prev_frame is not None:
-                flow_data, flow_vis = flow_est.estimate_flow(
-                    prev_frame,
-                    frame,
-                    raft_model,
-                    raft_transforms,
-                    device
-                )
+                with suppressor:
+                    flow_data, flow_vis = flow_est.estimate_flow(
+                        prev_frame,
+                        frame,
+                        raft_model,
+                        raft_transforms,
+                        device
+                    )
 
                 cv2.imwrite(flow_path, flow_vis)
 
@@ -133,9 +143,9 @@ def process_video():
 
                     img_to_dream = cv2.addWeighted(
                         frame,
-                        BLEND_WEIGHT,
+                        args.blend,
                         warped_prev_dream,
-                        (1 - BLEND_WEIGHT),
+                        (1 - args.blend),
                         0
                     )
             else:
@@ -145,7 +155,7 @@ def process_video():
 
             cv2.imwrite(input_frame_path, img_to_dream)
 
-            with contextlib.redirect_stdout(open(os.devnull, 'w')):
+            with suppressor:
                 dreamer.dream(input_frame_path, output_frame_path)
 
             del dreamer
@@ -166,9 +176,9 @@ def process_video():
 
             frame_count += 1
 
-            if frame_count % UPDATE_INTERVAL == 0:
+            if frame_count % args.update_interval == 0:
                 update_output_video(
-                    OUTPUT_VIDEO, 
+                    args.output_video, 
                     output_frames_dir, 
                     width, 
                     height, 
@@ -179,12 +189,27 @@ def process_video():
         cap.release()
         
         print("Finalizing video...")
-        update_output_video(OUTPUT_VIDEO, output_frames_dir, width, height, fps, frame_count)
+        update_output_video(args.output_video, output_frames_dir, width, height, fps, frame_count)
 
     finally:
-        if os.path.exists(abs_temp_dir):
+        if os.path.exists(abs_temp_dir) and not args.keep_temp:
             print(f"Cleaning up temp directory: {abs_temp_dir}")
             shutil.rmtree(abs_temp_dir)
+        elif args.keep_temp:
+             print(f"Keeping temp directory: {abs_temp_dir}")
 
 if __name__ == "__main__":
-    process_video()
+    parser = argparse.ArgumentParser(description="Video DeepDream CLI with Optical Flow Stability")
+    
+    parser.add_argument("-content_video", type=str, default="input.mp4", help="Path to input video")
+    parser.add_argument("-output_video", type=str, default="output.mp4", help="Path to output video")
+    
+    parser.add_argument("-temp_dir", type=str, default="temp", help="Directory for temporary frames")
+    parser.add_argument("-blend", type=float, default=0.5, help="Blend weight (0.0=Pure Warp, 1.0=No Warp)")
+    parser.add_argument("-update_interval", type=int, default=5, help="Update output video every N frames")
+    parser.add_argument("-debug", action="store_true", help="Enable stdout from the dreamer")
+    parser.add_argument("-keep_temp", action="store_true", help="Do not delete temp directory after finishing")
+
+    args, unknown_args = parser.parse_known_args()
+
+    process_video(args, unknown_args)
