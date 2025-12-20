@@ -180,6 +180,134 @@ class DeepDreamer:
         
         content_image = preprocess(input_image_path, self.params.image_size, self.params.model_type, self.input_mean).to(self.backward_device)
 
+        if self.params.optimizer == 'lbfgs':
+            print("Running optimization with L-BFGS")
+        else:
+            print("Running optimization with ADAM")
+
+        if self.params.seed >= 0:
+            torch.manual_seed(self.params.seed)
+            torch.cuda.manual_seed_all(self.params.seed)
+            torch.backends.cudnn.deterministic=True
+            random.seed(self.params.seed)
+            
+        if self.params.init == 'random':
+            base_img = torch.randn(content_image.size(), device=self.backward_device).mul(0.001)
+        elif self.params.init == 'image':
+            base_img = content_image.clone()
+
+        for i in self.dream_losses:
+            i.mode = 'capture'
+
+        if self.params.image_capture_size == -1:
+            self.net_base(base_img.clone())
+        else:
+            image_capture_size = tuple([int((float(self.params.image_capture_size) / max(base_img.size()))*x) for x in (base_img.size(2), base_img.size(3))])
+            self.net_base(dream_image.resize_tensor(base_img.clone(), (image_capture_size)))
+
+        if self.params.channels != '-1' or self.params.channel_mode != 'all' and self.params.channels != '-1':
+            print_channels(self.dream_losses, self.params.dream_layers.split(','), self.params.print_channels)
+            
+        if self.params.classify > 0:
+            if self.params.image_capture_size == 0:
+                feat = self.net_base(base_img.clone())
+            else:
+                feat = self.net_base(dream_image.resize_tensor(base_img.clone(), (image_capture_size)))
+            self.classify_img(feat)
+
+        for i in self.dream_losses:
+            i.mode = 'None'
+
+        current_img = base_img.clone()
+        h, w = current_img.size(2), current_img.size(3)
+        total_dream_losses, total_loss = [], [0]
+
+        octave_list = octave_calc((h,w), self.params.octave_scale, self.params.num_octaves, self.params.octave_mode)
+        
+        print_octave_sizes(octave_list)
+
+        for iter in range(1, self.params.num_iterations+1):
+            for octave, octave_sizes in enumerate(octave_list, 1):
+                net = copy.deepcopy(self.net_base) if not self.has_inception else self.net_base
+                
+                dream_losses, tv_losses, l2_losses = [], [], []
+                
+                if not self.has_inception:
+                    for i, layer in enumerate(net):
+                        if isinstance(layer, dream_loss_layers.TVLoss): tv_losses.append(layer)
+                        if isinstance(layer, dream_loss_layers.L2Regularizer): l2_losses.append(layer)
+                        if 'DreamLoss' in str(type(layer)): dream_losses.append(layer)
+                elif self.has_inception:
+                    net, dream_losses, tv_losses, l2_losses = dream_model.renew_net(
+                        (self.dtype, self.params.random_transforms, self.params.jitter, self.params.tv_weight, self.params.l2_weight, self.params.layer_sigma), 
+                        net, self.loss_module_list, self.lm_layer_names)
+
+                img = new_img(current_img.clone(), octave_sizes)
+                net(img)
+                
+                for i in dream_losses: i.mode = 'loss'
+                if self.params.normalize_weights: normalize_weights(dream_losses)
+                for param in net.parameters(): param.requires_grad = False
+
+                num_calls = [0]
+                def feval():
+                    num_calls[0] += 1
+                    optimizer.zero_grad()
+                    net(img)
+                    loss = 0
+                    for mod in dream_losses: loss += -mod.loss.to(self.backward_device)
+                    if self.params.tv_weight > 0:
+                        for mod in tv_losses: loss += mod.loss.to(self.backward_device)
+                    if self.params.l2_weight > 0:
+                        for mod in l2_losses: loss += mod.loss.to(self.backward_device)
+                    
+                    if self.params.clamp: img.clamp(0, self.clamp_val)
+                    if self.params.adjust_contrast > -1:
+                        img.data = dream_image.adjust_contrast(img, r=self.clamp_val, p=self.params.adjust_contrast)
+                    
+                    total_loss[0] += loss.item()
+                    loss.backward()
+
+                    maybe_print_octave_iter(num_calls[0], octave, self.params.octave_iter, dream_losses)
+                    
+                    maybe_save_octave(iter, num_calls[0], octave, img, content_image, self.input_mean)
+
+                    return loss
+
+                optimizer, loopVal = setup_optimizer(img)
+                while num_calls[0] <= self.params.octave_iter:
+                    optimizer.step(feval)
+
+                if octave == 1:
+                     for mod in dream_losses: total_dream_losses.append(mod.loss.item())
+                else:
+                     for d_loss, mod in enumerate(dream_losses): total_dream_losses[d_loss] += mod.loss.item()
+
+                if img.size(2) != h or img.size(3) != w:
+                    current_img = dream_image.resize_tensor(img.clone(), (h,w))
+                else:
+                    current_img = img.clone()
+
+            maybe_print(iter, total_loss[0], total_dream_losses)
+            
+            maybe_save(iter, current_img, content_image, self.input_mean, output_start_num, self.params.leading_zeros)
+            
+            total_dream_losses, total_loss = [], [0]
+            
+            if self.params.classify > 0:
+                if self.params.image_capture_size == 0:
+                    feat = self.net_base(current_img.clone())
+                else:
+                    feat = self.net_base(dream_image.resize_tensor(current_img.clone(), (image_capture_size)))
+                self.classify_img(feat)
+            
+            if self.params.zoom > 0:
+                current_img = dream_image.zoom(current_img, self.params.zoom, self.params.zoom_mode)
+        self.params.output_image = output_image_path
+        output_start_num = self.params.output_start_num - 1 if self.params.output_start_num > 0 else 0
+        
+        content_image = preprocess(input_image_path, self.params.image_size, self.params.model_type, self.input_mean).to(self.backward_device)
+
         if self.params.seed >= 0:
             torch.manual_seed(self.params.seed)
             torch.cuda.manual_seed_all(self.params.seed)
